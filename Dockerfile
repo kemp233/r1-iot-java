@@ -1,32 +1,25 @@
-# 第一阶段：构建 jar 包
-FROM eclipse-temurin:17.0.14_7-jdk as builder
-
-ENV MAVEN_VERSION=3.9.9
-ENV MAVEN_HOME=/opt/maven
-ENV PATH=${MAVEN_HOME}/bin:${PATH}
-
-RUN apt-get update && \
-    apt-get install -y curl tar && \
-    curl -fsSL https://downloads.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz -o /tmp/maven.tar.gz && \
-    mkdir -p ${MAVEN_HOME} && \
-    tar -xzf /tmp/maven.tar.gz -C ${MAVEN_HOME} --strip-components=1 && \
-    rm -rf /tmp/maven.tar.gz && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+# 第一阶段：构建阶段 (使用包含 Maven 的镜像以简化构建)
+FROM maven:3.9.9-eclipse-temurin-17 AS builder
 
 WORKDIR /app
-COPY pom.xml .
-COPY src ./src
 
-# 构建项目，生成 jar
+# 1. 首先复制父项目的 pom.xml
+COPY pom.xml .
+
+# 2. 复制所有子模块的代码 (多模块项目必须复制整个文件夹)
+COPY r1-web ./r1-web
+COPY r1-server ./r1-server
+
+# 3. 构建项目
+# 注意：mvn package 会先在 r1-web 中编译前端，然后在 r1-server 中编译后端并打包成 Fat JAR
 RUN mvn clean package -DskipTests
 
-# 第二阶段：运行 jar 包
+# 第二阶段：运行阶段
 FROM eclipse-temurin:17.0.14_7-jdk
 
 WORKDIR /app
 
-# 安装基础工具和ffmpeg
+# 安装基础工具和 ffmpeg
 RUN apt-get update && \
     apt-get install -y wget ffmpeg ca-certificates && \
     apt-get clean && \
@@ -47,18 +40,25 @@ RUN ARCH=$(uname -m) && \
     echo "下载 yt-dlp URL: $YT_URL" && \
     wget "$YT_URL" -O /usr/local/bin/yt-dlp && \
     chmod a+rx /usr/local/bin/yt-dlp && \
-    yt-dlp --version && \
     echo "下载 cloudflared URL: $CF_URL" && \
     wget "$CF_URL" -O /tmp/cloudflared.deb && \
     dpkg -i /tmp/cloudflared.deb || apt-get install -f -y && \
     rm -f /tmp/cloudflared.deb && \
+    # 验证安装
+    yt-dlp --version && \
     cloudflared --version
 
-# 从构建阶段复制 jar 文件（关键修复！）
-COPY --from=builder /app/target/*.jar app.jar
+# 从构建阶段复制 jar 文件
+# 注意路径：在多模块中，最终的可运行 jar 位于 r1-server 模块的 target 目录下
+# 我们使用排除法只拷贝真正的可执行 jar (排除以 .original 结尾的文件)
+COPY --from=builder /app/r1-server/target/r1-server-*.jar app.jar
 
-# 复制脚本（假设你把 manage_cloudflared.sh 放在 r1-server/ 目录下）
-COPY manage_cloudflared.sh /manage_cloudflared.sh
+# 复制脚本 (路径根据你 manage_cloudflared.sh 所在的实际模块位置而定，假设在项目根目录或 r1-server 下)
+# 如果脚本在 r1-server 目录下，请改为 COPY --from=builder /app/r1-server/manage_cloudflared.sh /manage_cloudflared.sh
+COPY --from=builder /app/r1-server/manage_cloudflared.sh /manage_cloudflared.sh
 RUN chmod +x /manage_cloudflared.sh
+
+# 暴露端口 (根据你的 Spring Boot 配置修改，默认 8080)
+EXPOSE 8080
 
 ENTRYPOINT ["java", "-jar", "app.jar"]
