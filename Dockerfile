@@ -14,8 +14,9 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-WORKDIR /workspace
-COPY . .
+WORKDIR /app
+COPY pom.xml .
+COPY src ./src
 
 # 构建项目，生成 jar
 RUN mvn clean package -DskipTests
@@ -35,9 +36,7 @@ RUN apt-get update && \
 RUN ARCH=$(uname -m) && \
     echo "检测到系统架构: $ARCH" && \
     if [ "$ARCH" = "x86_64" ]; then \
-        # yt-dlp
         YT_URL="https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux"; \
-        # cloudflared
         CF_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb"; \
     elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
         YT_URL="https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux_aarch64"; \
@@ -45,22 +44,21 @@ RUN ARCH=$(uname -m) && \
     else \
         echo "不支持的架构: $ARCH"; exit 1; \
     fi && \
-    # 下载并安装 yt-dlp
     echo "下载 yt-dlp URL: $YT_URL" && \
     wget "$YT_URL" -O /usr/local/bin/yt-dlp && \
     chmod a+rx /usr/local/bin/yt-dlp && \
     yt-dlp --version && \
-    # 下载并安装 cloudflared
     echo "下载 cloudflared URL: $CF_URL" && \
     wget "$CF_URL" -O /tmp/cloudflared.deb && \
     dpkg -i /tmp/cloudflared.deb || apt-get install -f -y && \
     rm -f /tmp/cloudflared.deb && \
     cloudflared --version
 
-# 从构建阶段复制 jar 文件
-COPY --from=builder /workspace/r1-server/target/*.jar app.jar
+# 从构建阶段复制 jar 文件（关键修复！）
+COPY --from=builder /app/target/*.jar app.jar
 
-COPY r1-server/src/main/resources/scripts/manage_cloudflared.sh /manage_cloudflared.sh
+# 复制脚本（假设你把 manage_cloudflared.sh 放在 r1-server/ 目录下）
+COPY manage_cloudflared.sh /manage_cloudflared.sh
 RUN chmod +x /manage_cloudflared.sh
 
 ENTRYPOINT ["java", "-jar", "app.jar"]
