@@ -12,16 +12,13 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <groupId>huan.diy</groupId>
     <artifactId>r1-web</artifactId>
-    <!-- 版本完全继承自父模块，故删除此行以避免冗余 -->
-    <!-- <version>0.0.1-SNAPSHOT</version> -->
-
     <packaging>jar</packaging>
     <name>r1-web</name>
 
     <build>
         <plugins>
+            <!-- 编译前端代码 -->
             <plugin>
                 <groupId>com.github.eirslett</groupId>
                 <artifactId>frontend-maven-plugin</artifactId>
@@ -57,6 +54,8 @@
                     </execution>
                 </executions>
             </plugin>
+
+            <!-- 将前端编译出来的 build 文件夹拷贝到 Java 静态资源目录 -->
             <plugin>
                 <artifactId>maven-resources-plugin</artifactId>
                 <version>3.2.0</version>
