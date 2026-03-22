@@ -11,7 +11,7 @@ env:
 
 jobs:
   build-and-push:
-    runs-on: ubuntu-latest 
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
@@ -20,15 +20,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 1. 设置 Java 8
-      - name: Set up JDK 8
+      # 1. 升级到 Java 17 以支持最新的 Maven 插件
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          java-version: '8'
+          java-version: '17'
           distribution: 'temurin'
           cache: maven
 
-      # 2. 设置 Node.js 16
+      # 2. 设置 Node.js
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -36,34 +36,40 @@ jobs:
           cache: 'npm'
           cache-dependency-path: 'r1-web/package-lock.json'
 
-      # 3. 手动构建前端 (添加 CI: false)
+      # 3. 构建前端 (CI=false 避免警告导致中断)
       - name: Build Frontend Manually
         working-directory: ./r1-web
         run: |
           npm install --legacy-peer-deps
           npm run build
         env:
-          CI: false  # 忽略 ESLint 警告
+          CI: false
           NODE_OPTIONS: "--max_old_space_size=4096"
 
-      # 4. 使用 Maven 打包 Java
-      # 即使手动构建了前端，Maven 插件仍可能尝试运行。
-      # 我们通过环境变量进一步确保 Maven 编译时也不受 CI=true 的干扰。
+      # 4. 使用 Maven 打包
       - name: Build Backend with Maven
         run: |
           mvn clean package -DskipTests \
           -Dskip.installnodenpm=true \
           -Dskip.npm=true
-        env:
-          CI: false 
 
-      # 5. 设置 QEMU 和 Buildx
+      # 5. 【关键修复】动态修改 Dockerfile 中的基础镜像
+      # 原项目 Dockerfile 用的是 openjdk:8-jdk-alpine，它不支持 Java 17 的 JAR 包
+      # 我们在构建前把它改成支持 Java 17 的轻量化镜像
+      - name: Patch Dockerfile for Java 17
+        run: |
+          sed -i 's/openjdk:8-jdk-alpine/eclipse-temurin:17-jre-alpine/g' Dockerfile
+          # 顺便确保 JAR 文件路径正确 (针对多模块项目)
+          # 如果你的 jar 还在 r1-server/target 目录下，可以取消下面这一行的注释：
+          # cp r1-server/target/*.jar target/r1-iot-java.jar || true
+
+      # 6. 设置多架构环境
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # 6. 登录 GHCR
+      # 7. 登录 GHCR
       - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
@@ -71,7 +77,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 7. 构建并推送
+      # 8. 构建并推送 amd64 和 arm64
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
