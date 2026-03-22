@@ -20,7 +20,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 1. 设置 Java 17 (用于编译，兼容性最好)
+      # 1. 设置 Java 17
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -28,7 +28,7 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      # 2. 设置 Node.js 16 (用于前端编译)
+      # 2. 设置 Node.js 16
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -36,7 +36,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: 'r1-web/package-lock.json'
 
-      # 3. 手动构建前端 (CI=false 忽略警告，提高通过率)
+      # 3. 构建前端
       - name: Build Frontend Manually
         working-directory: ./r1-web
         run: |
@@ -46,38 +46,50 @@ jobs:
           CI: false
           NODE_OPTIONS: "--max_old_space_size=4096"
 
-      # 4. 使用 Maven 打包后端 (跳过前端插件，使用上一步生成的静态文件)
+      # 4. 使用 Maven 打包后端
       - name: Build Backend with Maven
         run: |
           mvn clean package -DskipTests \
           -Dskip.installnodenpm=true \
           -Dskip.npm=true
 
-      # 5. 【核心修复】重写并简化 Dockerfile，移动 JAR 包
-      # 我们不再使用原项目中那个复杂的 Dockerfile，而是生成一个高效的运行环境
+      # 5. 【修复点】确保 JAR 包被正确捕获，并更换更稳定的基础镜像
       - name: Prepare Docker Environment
         run: |
-          # 创建统一的 target 目录并移动主 JAR 包
-          # 针对多模块项目，主 JAR 通常在 r1-server/target 下
           mkdir -p target_final
-          cp r1-server/target/*.jar target_final/app.jar || cp target/*.jar target_final/app.jar || true
           
-          # 直接覆盖项目中的 Dockerfile，使用轻量级 JRE 17
+          # 智能查找生成的 JAR 包 (多模块项目路径复杂，这里做个兼容)
+          # 优先找 r1-server 里的，再找根目录 target 里的
+          if [ -f "r1-server/target/r1-iot-java.jar" ]; then
+            cp r1-server/target/r1-iot-java.jar target_final/app.jar
+          elif ls r1-server/target/*.jar 1> /dev/null 2>&1; then
+            cp r1-server/target/*.jar target_final/app.jar
+          elif ls target/*.jar 1> /dev/null 2>&1; then
+            cp target/*.jar target_final/app.jar
+          else
+            echo "Error: No jar file found!"
+            exit 1
+          fi
+
+          # 更换为支持多架构最稳的 eclipse-temurin:17-jre (基于 Ubuntu)
+          # 这个镜像在 amd64 和 arm64 上都有完美的官方支持
           cat <<EOF > Dockerfile
-          FROM eclipse-temurin:17-jre-alpine
+          FROM eclipse-temurin:17-jre
           WORKDIR /app
           COPY target_final/app.jar app.jar
           EXPOSE 8080
           ENTRYPOINT ["java", "-Djava.security.egd=file:/dev/./urandom", "-jar", "app.jar"]
           EOF
 
-      # 6. 设置多架构支持
+      # 6. 设置 QEMU 仿真环境
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
+      
+      # 7. 设置 Docker Buildx
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # 7. 登录 GHCR
+      # 8. 登录 GHCR
       - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
@@ -85,7 +97,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 8. 构建并推送 amd64 和 arm64
+      # 9. 构建并推送 amd64 和 arm64
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
@@ -93,6 +105,5 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          # 优化构建缓存
           cache-from: type=gha
           cache-to: type=gha,mode=max
