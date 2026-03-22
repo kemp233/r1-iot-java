@@ -20,7 +20,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 1. 升级到 Java 17 以支持最新的 Maven 插件
+      # 1. 设置 Java 17 (用于编译，兼容性最好)
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -28,7 +28,7 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      # 2. 设置 Node.js
+      # 2. 设置 Node.js 16 (用于前端编译)
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -36,7 +36,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: 'r1-web/package-lock.json'
 
-      # 3. 构建前端 (CI=false 避免警告导致中断)
+      # 3. 手动构建前端 (CI=false 忽略警告，提高通过率)
       - name: Build Frontend Manually
         working-directory: ./r1-web
         run: |
@@ -46,24 +46,32 @@ jobs:
           CI: false
           NODE_OPTIONS: "--max_old_space_size=4096"
 
-      # 4. 使用 Maven 打包
+      # 4. 使用 Maven 打包后端 (跳过前端插件，使用上一步生成的静态文件)
       - name: Build Backend with Maven
         run: |
           mvn clean package -DskipTests \
           -Dskip.installnodenpm=true \
           -Dskip.npm=true
 
-      # 5. 【关键修复】动态修改 Dockerfile 中的基础镜像
-      # 原项目 Dockerfile 用的是 openjdk:8-jdk-alpine，它不支持 Java 17 的 JAR 包
-      # 我们在构建前把它改成支持 Java 17 的轻量化镜像
-      - name: Patch Dockerfile for Java 17
+      # 5. 【核心修复】重写并简化 Dockerfile，移动 JAR 包
+      # 我们不再使用原项目中那个复杂的 Dockerfile，而是生成一个高效的运行环境
+      - name: Prepare Docker Environment
         run: |
-          sed -i 's/openjdk:8-jdk-alpine/eclipse-temurin:17-jre-alpine/g' Dockerfile
-          # 顺便确保 JAR 文件路径正确 (针对多模块项目)
-          # 如果你的 jar 还在 r1-server/target 目录下，可以取消下面这一行的注释：
-          # cp r1-server/target/*.jar target/r1-iot-java.jar || true
+          # 创建统一的 target 目录并移动主 JAR 包
+          # 针对多模块项目，主 JAR 通常在 r1-server/target 下
+          mkdir -p target_final
+          cp r1-server/target/*.jar target_final/app.jar || cp target/*.jar target_final/app.jar || true
+          
+          # 直接覆盖项目中的 Dockerfile，使用轻量级 JRE 17
+          cat <<EOF > Dockerfile
+          FROM eclipse-temurin:17-jre-alpine
+          WORKDIR /app
+          COPY target_final/app.jar app.jar
+          EXPOSE 8080
+          ENTRYPOINT ["java", "-Djava.security.egd=file:/dev/./urandom", "-jar", "app.jar"]
+          EOF
 
-      # 6. 设置多架构环境
+      # 6. 设置多架构支持
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
@@ -85,5 +93,6 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          # 优化构建缓存
           cache-from: type=gha
           cache-to: type=gha,mode=max
