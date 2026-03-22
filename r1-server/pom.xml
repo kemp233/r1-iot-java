@@ -13,21 +13,32 @@
     </parent>
 
     <artifactId>r1-server</artifactId>
-    <name>r1-server</name>
-    <description>r1-server service logic module</description>
-
-    <properties>
-        <java.version>17</java.version>
-    </properties>
 
     <dependencies>
-        <!-- 1. 核心 Web 依赖 (必须包含，用于 RestTemplate) -->
+        <!-- 核心：解决 RestTemplate 报错 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
-        <!-- 2. 工具类与框架 -->
+        <!-- 引用 r1-web，确保前端资源被打包 -->
+        <dependency>
+            <groupId>huan.diy</groupId>
+            <artifactId>r1-web</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
         <dependency>
             <groupId>org.jsoup</groupId>
             <artifactId>jsoup</artifactId>
@@ -41,35 +52,26 @@
         </dependency>
 
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-aop</artifactId>
-        </dependency>
-
-        <dependency>
             <groupId>io.netty</groupId>
             <artifactId>netty-all</artifactId>
         </dependency>
 
-        <!-- 3. AI 相关依赖 -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j</artifactId>
             <version>1.3.0</version>
         </dependency>
-
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-open-ai</artifactId>
             <version>1.3.0</version>
         </dependency>
-
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-google-ai-gemini</artifactId>
             <version>1.3.0</version>
         </dependency>
 
-        <!-- 4. 网络通信 -->
         <dependency>
             <groupId>org.apache.httpcomponents.client5</groupId>
             <artifactId>httpclient5</artifactId>
@@ -80,7 +82,6 @@
             <artifactId>spring-boot-starter-websocket</artifactId>
         </dependency>
 
-        <!-- 5. 常用工具 -->
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
@@ -93,14 +94,6 @@
             <version>1.14.0</version>
         </dependency>
 
-        <!-- 6. 开发辅助 (Lombok) -->
-        <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
-            <optional>true</optional>
-        </dependency>
-
-        <!-- 7. 测试 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
@@ -111,22 +104,9 @@
     <build>
         <plugins>
             <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <configuration>
-                    <source>${java.version}</source>
-                    <target>${java.version}</target>
-                    <annotationProcessorPaths>
-                        <path>
-                            <groupId>org.projectlombok</groupId>
-                            <artifactId>lombok</artifactId>
-                            <version>${lombok.version}</version>
-                        </path>
-                    </annotationProcessorPaths>
-                </configuration>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
-            <!-- 注意：在多模块项目中，子模块一般不需要 spring-boot-maven-plugin 的 repackage 目标，
-                 除非该模块本身就是独立的启动模块。这里建议只保留基础配置或移除 -->
         </plugins>
     </build>
 </project>
