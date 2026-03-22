@@ -7,8 +7,8 @@
         <artifactId>r1-iot</artifactId>
         <version>0.0.1-SNAPSHOT</version>
     </parent>
-    <groupId>huan.diy</groupId>
-    <artifactId>r1-server</artifactId>
+ <!--    <groupId>huan.diy</groupId>-->
+ <!--    <artifactId>r1-server</artifactId>-->
     <version>0.0.1-SNAPSHOT</version>
     <name>r1-server</name>
     <description>r1-server</description>
