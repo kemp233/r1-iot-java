@@ -2,8 +2,8 @@ name: Build and Push Multi-Arch Docker Image
 
 on:
   push:
-    branches: [ "master" ] # 监听 master 分支的推送
-  workflow_dispatch:      # 允许手动触发
+    branches: [ "master" ]
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
@@ -20,7 +20,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 1. 设置 Java 环境以编译项目 (因为 Dockerfile 里用了 ADD target/*.jar)
+      # 1. 设置 Java 环境
       - name: Set up JDK 8
         uses: actions/setup-java@v4
         with:
@@ -28,19 +28,29 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      # 2. 使用 Maven 打包 JAR
+      # 2. 设置 Node.js 环境 (前端构建需要)
+      # 很多旧版 SpringBoot 前端项目在 Node 14 或 16 下最稳定
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '16' 
+
+      # 3. 使用 Maven 打包
+      # 添加 NODE_OPTIONS 以兼容旧版 Webpack 的加密算法
       - name: Build with Maven
         run: mvn clean package -DskipTests
+        env:
+          NODE_OPTIONS: --openssl-legacy-provider  # 关键修复：解决旧前端项目的 OpenSSL 报错
 
-      # 3. 设置 QEMU (用于跨平台编译 arm64)
+      # 4. 设置 QEMU
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
-      # 4. 设置 Docker Buildx
+      # 5. 设置 Docker Buildx
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # 5. 登录到 GitHub Container Registry
+      # 6. 登录到 GitHub Container Registry
       - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
@@ -48,7 +58,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 6. 提取元数据 (标签、版本等)
+      # 7. 提取元数据
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -56,9 +66,8 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest
-            type=sha,format=short
 
-      # 7. 构建并推送多架构镜像
+      # 8. 构建并推送多架构镜像
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
@@ -67,6 +76,5 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # 优化：利用 GitHub Actions 的缓存加快后续构建
           cache-from: type=gha
           cache-to: type=gha,mode=max
