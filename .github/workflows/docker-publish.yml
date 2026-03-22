@@ -11,7 +11,8 @@ env:
 
 jobs:
   build-and-push:
-    runs-on: ubuntu-latest
+    # 使用 20.04 以获得更好的旧软件兼容性
+    runs-on: ubuntu-20.04 
     permissions:
       contents: read
       packages: write
@@ -28,29 +29,38 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      # 2. 设置 Node.js 环境 (前端构建需要)
-      # 很多旧版 SpringBoot 前端项目在 Node 14 或 16 下最稳定
+      # 2. 设置 Node.js 14 (旧项目最稳定的版本)
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '16' 
+          node-version: '14'
+          cache: 'npm'
+          cache-dependency-path: 'r1-web/package-lock.json'
 
-      # 3. 使用 Maven 打包
-      # 添加 NODE_OPTIONS 以兼容旧版 Webpack 的加密算法
-      - name: Build with Maven
-        run: mvn clean package -DskipTests
+      # 3. 手动构建前端 (跳过 Maven 插件的自动下载)
+      - name: Build Frontend Manually
+        working-directory: ./r1-web
+        run: |
+          npm install --legacy-peer-deps
+          npm run build:prod || npm run build
         env:
-          NODE_OPTIONS: --openssl-legacy-provider  # 关键修复：解决旧前端项目的 OpenSSL 报错
+          NODE_OPTIONS: --max_old_space_size=4096
 
-      # 4. 设置 QEMU
+      # 4. 使用 Maven 打包 Java (跳过前端安装和构建步骤)
+      - name: Build Backend with Maven
+        # 关键：通过参数跳过 frontend-maven-plugin 的执行
+        run: |
+          mvn clean package -DskipTests \
+          -Dskip.installnodenpm=true \
+          -Dskip.npm=true
+
+      # 5. 设置 QEMU 和 Buildx
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
-
-      # 5. 设置 Docker Buildx
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # 6. 登录到 GitHub Container Registry
+      # 6. 登录 GHCR
       - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
@@ -58,23 +68,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 7. 提取元数据
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest
-
-      # 8. 构建并推送多架构镜像
+      # 7. 构建并推送
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          # 这样可以确保构建出来的 jar 被加入镜像
           cache-from: type=gha
           cache-to: type=gha,mode=max
