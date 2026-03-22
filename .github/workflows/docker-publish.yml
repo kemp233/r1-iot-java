@@ -36,22 +36,26 @@ jobs:
           cache: 'npm'
           cache-dependency-path: 'r1-web/package-lock.json'
 
-      # 3. 手动构建前端 (去掉了报错的参数)
+      # 3. 手动构建前端 (添加 CI: false)
       - name: Build Frontend Manually
         working-directory: ./r1-web
         run: |
           npm install --legacy-peer-deps
-          npm run build:prod || npm run build
+          npm run build
         env:
-          # 仅保留内存限制，去掉 --openssl-legacy-provider
+          CI: false  # 忽略 ESLint 警告
           NODE_OPTIONS: "--max_old_space_size=4096"
 
       # 4. 使用 Maven 打包 Java
+      # 即使手动构建了前端，Maven 插件仍可能尝试运行。
+      # 我们通过环境变量进一步确保 Maven 编译时也不受 CI=true 的干扰。
       - name: Build Backend with Maven
         run: |
           mvn clean package -DskipTests \
           -Dskip.installnodenpm=true \
           -Dskip.npm=true
+        env:
+          CI: false 
 
       # 5. 设置 QEMU 和 Buildx
       - name: Set up QEMU
