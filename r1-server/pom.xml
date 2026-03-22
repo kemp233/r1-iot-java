@@ -15,13 +15,13 @@
     <artifactId>r1-server</artifactId>
 
     <dependencies>
-        <!-- 核心：解决 RestTemplate 报错 -->
+        <!-- 核心 Web 支持 (解决 RestTemplate 编译报错) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
-        <!-- 引用 r1-web，确保前端资源被打包 -->
+        <!-- 引用前端模块 (确保前端静态资源被打包进最终 JAR) -->
         <dependency>
             <groupId>huan.diy</groupId>
             <artifactId>r1-web</artifactId>
@@ -56,6 +56,7 @@
             <artifactId>netty-all</artifactId>
         </dependency>
 
+        <!-- AI 相关依赖 -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j</artifactId>
@@ -103,9 +104,45 @@
 
     <build>
         <plugins>
+            <!-- 编译插件：确保 Lombok 正常工作 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+                <configuration>
+                    <source>17</source>
+                    <target>17</target>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>1.18.30</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+
+            <!-- Spring Boot 打包插件：解决 no main manifest attribute 报错 -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <!-- 必须声明此 goal 才会生成可直接运行的 Fat JAR -->
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <!-- 排除 lombok，减少包体积 -->
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
             </plugin>
         </plugins>
     </build>
