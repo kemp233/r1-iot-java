@@ -22,7 +22,6 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import org.springframework.web.client.RestTemplate;
 
 import java.util.Map;
 import java.util.Optional;
@@ -115,7 +114,19 @@ public class HassServiceImpl {
     public String controlHass(String target, String parameter, String actValue, Device device) {
         try {
             String deviceId = device.getId();
-            String entityId = findHassEntity(target, HASS_CACHE.get(deviceId));
+            JsonNode entitiesNode = HASS_CACHE.get(deviceId);
+
+            if (entitiesNode == null || entitiesNode.isEmpty()) {
+                log.warn("HASS cache is empty or null for deviceId: {}", deviceId);
+                return "未能连接到家庭助手，请检查网络或配置";
+            }
+
+            String entityId = findHassEntity(target, entitiesNode);
+            if (entityId == null) {
+                log.warn("未在 HA 中找到与 target='{}' 最匹配的实体", target);
+                return "抱歉，我没找到名为‘" + target + "’的灯或开关，请确认设备名称是否正确";
+            }
+
             IotAiResp aiIot = new IotAiResp(entityId, actValue, parameter);
 
             String ttsContent = "SUCCESS";
@@ -135,17 +146,25 @@ public class HassServiceImpl {
                 case "set":
                     // todo
                 default:
-
+                    log.warn("未知的 action: {}", action);
+                    ttsContent = "不支持的操作：" + action;
+                    break;
             }
 
             return ttsContent;
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            log.error("控制 HA 时发生异常: target={}, parameter={}, actValue={}", target, parameter, actValue, e);
+            return "操作失败：" + e.getMessage();
         }
 
     }
 
     private String findHassEntity(String target, JsonNode jsonNode) {
+
+        if (jsonNode == null || jsonNode.isEmpty()) {
+            log.warn("传入的 jsonNode 为空或无数据，target={}", target);
+            return null;
+        }
 
         JsonNode mostSimilarChannel = null;
         int minDistance = Integer.MAX_VALUE;
@@ -164,29 +183,47 @@ public class HassServiceImpl {
             }
         }
 
+        if (mostSimilarChannel == null) {
+            log.warn("在所有实体中未找到与 target='{}' 最相似的匹配项", target);
+            return null;
+        }
 
-        return mostSimilarChannel.get("entity_id").textValue();
-
+        String entityId = mostSimilarChannel.get("entity_id").asText();
+        log.info("根据 target='{}' 匹配到实体: entity_id={}, name={}", target, entityId, mostSimilarChannel.get("name").asText());
+        return entityId;
     }
 
     private void switchOperation(String deviceId, String entityId, boolean on) {
         new Thread(() -> {
 
+            // 状态查询：仅用于 light 类型避免重复操作
             if (entityId.startsWith("light")) {
-                JsonNode resp = stateQuery(deviceId, entityId);
-                String val = resp.get("state").textValue();
-                if (val.equals("on") && on) {
-                    return;
-                }
-                if (val.equals("off") && !on) {
-                    return;
+                try {
+                    JsonNode resp = stateQuery(deviceId, entityId);
+                    String val = resp.get("state").textValue();
+                    if (val.equals("on") && on) {
+                        log.info("灯 {} 已经是开状态，无需操作", entityId);
+                        return;
+                    }
+                    if (val.equals("off") && !on) {
+                        log.info("灯 {} 已经是关状态，无需操作", entityId);
+                        return;
+                    }
+                } catch (Exception e) {
+                    log.warn("查询灯状态失败，仍尝试执行操作: {}", entityId, e);
                 }
             }
+
             String url = R1IotUtils.getDeviceMap().get(deviceId).getHassConfig().getEndpoint();
             url = url.endsWith("/") ? url : (url + "/");
-            url = buildOperationUrl(entityId, url, on);
+            String operationUrl = buildOperationUrl(entityId, url, on);
 
-            log.info("action url {}", url);
+            if (operationUrl == null) {
+                log.error("无法为 entityId={} 构造操作 URL，前缀不被支持: switch 或 light", entityId);
+                return; // 提前退出，不发送无效请求
+            }
+
+            log.info("action url {}", operationUrl);
             log.info("action entityId {}", entityId);
 
             Map<String, String> entityMap = Map.of("entity_id", entityId);
@@ -195,23 +232,34 @@ public class HassServiceImpl {
             headers.set("Authorization", "Bearer " + R1IotUtils.getDeviceMap().get(deviceId).getHassConfig().getToken());
             HttpEntity<Map<String, String>> entity = new HttpEntity<>(entityMap, headers);
             ResponseEntity<String> exchange = restTemplate.exchange(
-                    url,
+                    operationUrl,
                     HttpMethod.POST,
                     entity,
                     String.class
             );
             log.info("iot 执行HTTP 返回码：{}", exchange.getStatusCode().toString());
+            if (!exchange.getStatusCode().is2xxSuccessful()) {
+                log.warn("HA 返回非成功状态码: {}, 响应体: {}", exchange.getStatusCode(), exchange.getBody());
+            }
 
         }).start();
     }
 
-    private String buildOperationUrl(String entityId, String url, boolean on) {
+    /**
+     * 构造操作 URL：支持 turn_on / turn_off，明确处理未知类型
+     */
+    private String buildOperationUrl(String entityId, String baseUrl, boolean on) {
+        String action = on ? "turn_on" : "turn_off";
         if (entityId.startsWith("switch")) {
-            return url + "api/services/switch/" + (on ? "turn_on" : "turn_off");
+            return baseUrl + "api/services/switch/" + action;
         } else if (entityId.startsWith("light")) {
-            return url + "api/services/light/toggle";
+            return baseUrl + "api/services/light/" + action;  // ✅ 修复：使用 turn_on / turn_off，不再是 toggle
         }
-        return null;
+        // 对于其他类型（如 automation, script, input_boolean 等），不支持直接控制
+        log.warn("entityId={} 以 {} 开头，当前仅支持 switch 和 light 类型的直接控制", 
+                 entityId, 
+                 entityId.split("\\.")[0]);
+        return null;  // 明确返回 null，避免误发送
     }
 
     private String queryStatus(String deviceId, String entityId) {
