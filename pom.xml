@@ -32,12 +32,15 @@
 
     <properties>
         <java.version>17</java.version>
+        <maven.compiler.source>${java.version}</maven.compiler.source>
+        <maven.compiler.target>${java.version}</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
     <build>
         <pluginManagement>
             <plugins>
-                <!-- 统一编译插件 -->
+                <!-- 核心修复：统一编译插件 -->
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-compiler-plugin</artifactId>
@@ -45,10 +48,13 @@
                     <configuration>
                         <source>${java.version}</source>
                         <target>${java.version}</target>
+                        <!-- ✅ 关键配置：保留方法参数名，解决 Spring Boot 3.2+ 的参数解析异常 -->
+                        <parameters>true</parameters>
                         <annotationProcessorPaths>
                             <path>
                                 <groupId>org.projectlombok</groupId>
                                 <artifactId>lombok</artifactId>
+                                <version>1.18.30</version> <!-- 建议明确版本以保证编译成功 -->
                             </path>
                         </annotationProcessorPaths>
                     </configuration>
@@ -61,5 +67,13 @@
                 </plugin>
             </plugins>
         </pluginManagement>
+        
+        <!-- 激活插件（确保子模块继承生效） -->
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+            </plugin>
+        </plugins>
     </build>
 </project>
